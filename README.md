@@ -18,6 +18,8 @@ CryptoCensus utilizes a cURL-based web crawler and web scraper to:
 4. Validate the identified domains are crypto-related.
 5. Output validated domains to a text list.
 
+To build and compile, cURL 7.86 must exist within the same directory as CryptoCensus. This can be found here: https://curl.se/download.html
+
 ## Planned Features
 
 Before a 1.0 release, here is a roadmap of planned changes/improvements:
