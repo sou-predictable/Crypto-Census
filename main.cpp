@@ -1,37 +1,70 @@
-#include "DomainScraper.h"
-#include "CurlHandler.h"
-#include "TermMatcher.h"
-#include <queue>
-#include <string>
+#include "ThreadManager.h"
+#include "ThreadSafeQueue.h"
+#include "Config.h"
 #include <fstream>
+#include <iostream>
+#include <string>
 #include <unordered_set>
 
-std::queue<std::string> getInitCrawlerQueue() {
+/**
+ * getInitCrawlerQueue gets the initial crawler queue from a text file
+ * 
+ * @param fileToRead the file to read
+ * @return the crawler queue built from the source file
+ */
+void populateInitCrawlerQueue(std::string fileToRead, ThreadSafeQueue<std::string>* initialCrawlerQueue) {
+    const std::string defaultProtocol = "https://";
     std::string currentLine;
-    std::queue<std::string> initialCrawlerQueue;
-    std::ifstream crawlerInputer = std::ifstream("sources.txt");
-    while(std::getline(crawlerInputer, currentLine)) { initialCrawlerQueue.push("https://" + currentLine); }
-    return initialCrawlerQueue;
+    std::ifstream crawlerInputer = std::ifstream(fileToRead);
+    while(std::getline(crawlerInputer, currentLine)) {
+        initialCrawlerQueue->push(defaultProtocol + currentLine);
+    }
 }
 
+/**
+ * getStringSetFromFile builds a string set from a text file
+ * 
+ * @param fileToRead the file to read
+ * @return the string set built from the provided file
+ */
 std::unordered_set<std::string> getStringSetFromFile(std::string fileToRead) {
     std::string currentLine;
     std::unordered_set<std::string> set;
     std::ifstream exclusionInputer = std::ifstream(fileToRead);
-    while(std::getline(exclusionInputer, currentLine)) { set.insert(currentLine); }
+    while(std::getline(exclusionInputer, currentLine)) {
+        set.insert(currentLine);
+    }
     return set;
 }
 
-int main() {
-    std::unordered_set<std::string> exclusionSet = getStringSetFromFile("exclusions.txt");
-    std::unordered_set<std::string> searchTermsSet = getStringSetFromFile("terms.txt");
+/**
+ * CryptoCensus works by utilizing a crawler/scraper to identify crypto-related domains
+ * 
+ * The program does this by attempting using a list of terms commonly found on crypto-related sites.
+ * If a webpage contains a number of unique crypto terms, the page is classified as crypto-related.
+ * The program then attempts to check the webpage's domain for crypto sites.
+ * If the webpage's domain also contains enough terms to be classified as a crypto-related site, the domain is flagged as crypto-related.
+ * 
+ * Additionally, any domains found on the webpage are also checked to see if the domain is crypto related.
+ * 
+ * The domain checks are done to exclude sites that may discuss crypto activity, but are not devoted to crypto (such as wikipedia and youtube).
+ * 
+ * This program requires the following files in the same directory as the executable:
+ * sources.txt - the initial sites to start crawling from
+ * terms.txt - the terms to search for
+ * exclusions.txt - the exclusions
+ * cacert.pem - the CA CERT
+ * libcurl-x64.dll - the libcurl library
+ */
+int main(int argc, char** argv) {
+    Config c;
+    curl_global_init(CURL_GLOBAL_ALL);
 
     // Populate inputCrawlerQueue with domains found in "sources.txt"
-    DomainScraper domain(getInitCrawlerQueue(), DomainScraper::CHECK_ALL_DOMAINS_FOR_TERMS);
-    domain.setExclusions(getStringSetFromFile("exclusions.txt"));
-    domain.setSearchTerms(getStringSetFromFile("terms.txt"));
 
-    domain.startDomainScraper();
-
+    ThreadSafeQueue<std::string> initialCrawlerQueue;
+    populateInitCrawlerQueue("sources.txt", &initialCrawlerQueue);
+    ThreadManager manager(&initialCrawlerQueue, getStringSetFromFile("exclusions.txt"));
+    curl_global_cleanup();
     return 0;
 }

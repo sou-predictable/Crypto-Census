@@ -1,25 +1,18 @@
-mining
-pool
-crypto
-xmr
-bitcoin
-token
-exchanges
-hashrate
-hash rate
-miners
-decentralized
-monero
-Mining
-Pool
-Crypto
-Xmr
-Bitcoin
-Token
+MINING
+POOL
+CRYPTO
 XMR
-Exchanges
-Hashrate
-Hash Rate
-Miners
-Decentralized
-Monero
+BITCOIN
+TOKEN
+EXCHANGES
+HASHRATE
+HASH RATE
+MINER
+MINER COUNT
+MINERS COUNT
+DECENTRALIZED
+MONERO
+MINING POOL
+BLOCKS FOUND
+BLOCK FOUND
+POOL HASHRATE
