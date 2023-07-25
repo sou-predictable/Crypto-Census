@@ -11,7 +11,7 @@ TermMatcher::TermMatcher(int i) {
 }
 
 TermMatcher::TermMatcher(Config* config) {
-    const int defaultNumRequiredTerms = 3;
+    const int defaultNumRequiredTerms = 4;
     numRequiredTerms = config->getIntConfig("TermMatcher_NumRequiredTerms", defaultNumRequiredTerms);
     if(numRequiredTerms < 0)
         numRequiredTerms = 0;

@@ -1,3 +1,5 @@
 www.forbes.com
 finance.yahoo.com
 uk.finance.yahoo.com
+Reuters.com
+reuters.com
