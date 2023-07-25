@@ -20,7 +20,7 @@ Crypto Census utilizes a `curl`-based web crawler and web scraper to:
 
 ## Planned Features
 
-Before a 1.0 release, here is a roadmap of planned changes/improvements:
+Here is a roadmap of planned changes/improvements:
 
 * More Verbose Documentation
 * Statically-Linked Binary
