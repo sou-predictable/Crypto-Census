@@ -35,9 +35,9 @@ int Config::getIntConfig(std::string configKey, int defaultValue, int min, int m
             if(output >= min && output <= max)
                 return output;
         } catch(const std::invalid_argument& e) {
-            std::cout << "Invalid Configuration: " << configKey << std::endl;
+            std::cout << "ERROR: Invalid Configuration: " << configKey << "\n";
         } catch(const std::out_of_range& e) {
-            std::cout << "Configuration Out Of Range: " << configKey << std::endl;
+            std::cout << "ERROR: Configuration Out Of Range: " << configKey << "\n";
         }
     }
     return defaultValue;
@@ -54,9 +54,9 @@ long Config::getLongConfig(std::string configKey, long defaultValue, int min, in
             long output = stol(it->second);
             return output;
         } catch(const std::invalid_argument& e) {
-            std::cout << "Invalid Configuration: " << configKey << std::endl;
+            std::cout << "ERROR: Invalid Configuration: " << configKey << "\n";
         } catch(const std::out_of_range& e) {
-            std::cout << "Configuration Out Of Range: " << configKey << std::endl;
+            std::cout << "ERROR: Configuration Out Of Range: " << configKey << "\n";
         }
     }
     return defaultValue;

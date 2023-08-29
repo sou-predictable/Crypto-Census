@@ -1,7 +1,7 @@
-#include "Config.h"
 #include "TermMatcher.h"
-#include <string>
+#include "Config.h"
 #include <fstream>
+#include <string>
 #include <unordered_set>
 #include <vector>
 
@@ -58,6 +58,7 @@ bool TermMatcher::matchTerms(std::vector<std::string> data, bool caseSensitive) 
                 if(!caseSensitive) {
                     std::string tempStr = str;
                     str.clear();
+                    str.shrink_to_fit();
                     for(char c : tempStr) {
                         // If the search is case insensitive, matchTerms capitalizes the data before the comparison
                         str += (char)toupper(c);

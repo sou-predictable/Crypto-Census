@@ -13,20 +13,11 @@
 #include <unordered_set>
 #include <unordered_map>
 
-/**
- * Constructor for Crawler
- * @param[in] cIO the struct holding the input and output queue pointers for curl
- * @param[in] initialQueue the initial queue of domains to crawl
- * @param[in] killS a pointer to the kill switch semaphore
- * @param[out] extractedDomains a pointer to the domains which have been extracted
- * @param[in] eDomains excluded domains
- * @param[in] config a pointer to the object housing configurations
- */
 Crawler::Crawler(curlIO cIO, ThreadSafeQueue<std::string>* initialQueue, std::atomic<int>* killS, ThreadSafeQueue<std::string>* extractedDomains, std::unordered_set<std::string> eDomains, Config* config) {
-    const int defaultMaxRequestsPerDomain = 100;
-    const int defaultMaxExtractedLinksPerPage = 100;
+    const int defaultMaxRequestsPerDomain = 150;
+    const int defaultMaxExtractedLinksPerPage = 500;
 
-    const int maxDomainSize = 253;  // https://www.freesoft.org/CIE/RFC/1035/9.htm
+    maxDomainSize = 253;  // https://www.freesoft.org/CIE/RFC/1035/9.htm
 
     sleepLockMilliseconds = std::chrono::milliseconds(20);
     
@@ -41,49 +32,37 @@ Crawler::Crawler(curlIO cIO, ThreadSafeQueue<std::string>* initialQueue, std::at
     
     std::string initialQueueData;
     if(initialQueue->empty())
-        std::cout << "ERROR: sources.txt Has Not Been Populated" << std::endl;
+        std::cout << "ERROR: sources.txt Has Not Been Populated\n";
     else
         while(initialQueue->safePop(&initialQueueData) && initialQueueData.length() < maxDomainSize) {
             std::queue<std::string> domain;
             if(initialQueueData.length() < maxDomainSize) {
                 extractDomains(initialQueueData, &domain);
                 if(!domain.empty())
-                    tryPushUrl(initialQueueData, domain.front());
+                    queuedUrls.push(std::make_pair(initialQueueData, domain.front()));
                 else
-                    std::cout << "ERROR: Invalid Initial Domain: " << initialQueueData << std::endl;
+                    std::cout << "ERROR: Invalid Initial Domain: " << initialQueueData << "\n";
             } else
-                std::cout << "ERROR: Initial Domain Exceeds Max Size: " << initialQueueData << std::endl;
+                std::cout << "ERROR: Initial Domain Exceeds Max Size: " << initialQueueData << "\n";
         }
+        
+    pushUrls();
 }
 
-/**
- * Crawl initiates the crawling process. The crawling continues until the killSwitch is set to 0.
- * @param validator the TermMatcher that determines whether a site should be crawled or not
- */
 void Crawler::crawl(TermMatcher* validator) {
-    int numCrawled = 0;
     // Thread will operate until the killswitch is thrown 
     while(killSwitch->load() == 0) {
         siteData data;
         if(curlOutputQueue->safePop(&data)) {
-            numCrawled++;
             domainScraper(data, validator);
-            // If there is no work, the crawler thread sleeps
+            pushUrls();
+        // If there is no work, the crawler thread sleeps
         } else
             std::this_thread::sleep_for(sleepLockMilliseconds);
-        std::cout << '\r' << "Sites Crawled: " << numCrawled << "     Sites Left to Crawl: " << urlQueue->size() << "     Subdomains Left to Process: " << curlOutputQueue->size() << "                                                            ";
     }
-    std::cout << "Crawler Exiting" << std::endl;
+    std::cout << "Crawler Exiting\n";
 }
 
-/**
- * domainScraper uses regex to parse for subdomains and A HREF links
- * 
- * Extracted subdomains are handled by extractDomains.
- * 
- * @param inputData a struct which contains both the site's URL and a string vector representing the site's data
- * @param validator the TermMatcher that determines whether a site should be crawled or not
- */
 void Crawler::domainScraper(siteData inputData, TermMatcher* validator) {
     /**
      * Checks to see if there is any data, then checks to see if data returned is an HTML document.
@@ -119,33 +98,32 @@ void Crawler::domainScraper(siteData inputData, TermMatcher* validator) {
             // Iterate through every found link
             for(; j != end && linksFound < maxExtractedLinksPerPage; j++, linksFound++) {
                 boost::smatch match = *j;
-                // Handle self referencing links by concatenating current_url to just the domain, then adding the rest of the match
-                // If the root domain could not be extracted, ignore the self referencing URL
+                /** 
+                 * Handle self referencing links by concatenating current_url to just the domain, then adding the rest of the match
+                 * If the root domain could not be extracted, ignore the self referencing URL
+                 */
                 if(match.str(urlIndex)[0] == selfReferencingLink && !siteDomain.empty())
                     // Send URL for validation
-                    tryPushUrl(defaultProtocol + siteDomain.front() + match.str(urlIndex), siteDomain.front());
+                    queuedUrls.push(std::make_pair(defaultProtocol + siteDomain.front() + match.str(urlIndex), siteDomain.front()));
                 // Exclude excluded domains
                 else if(excludedDomains.empty() || excludedDomains.find(match.str(domainIndex)) == excludedDomains.end())
-                    tryPushUrl(match.str(urlIndex), match.str(domainIndex));
+                    queuedUrls.push(std::make_pair(match.str(urlIndex), match.str(domainIndex)));
             }
         }
     }
 }
 
-/**
- * extractDomains uses regex to pull domain-like strings from an input string
- *  
- * @param[in] data the string to search through
- * @param[out] extractedDomains a pointer to the queue extractDomains will push to. 
- */
 void Crawler::extractDomains(std::string data, std::queue<std::string>* extractedDomains) {
     // This expression is used to filter for domains
-    boost::regex expression(R"(\W([\w-]+?\.(([\w-]+?\.)+)?([a-zA-Z]+|XN--\w+)))");
+    boost::regex expression(R"([^\w\.\-]([\w-]+?\.(([\w-]+?\.)+)?([a-zA-Z]+|XN--[A-Za-z0-9]+)))");
 
     boost::sregex_iterator i = boost::sregex_iterator(data.begin(), data.end(), expression);
     boost::sregex_iterator end;
 
-    // For every domain extracted, check for a valid top level domain, then exclude any matches with a `(` character to reduce false positives
+    /**
+     * For every domain extracted, check for a valid top level domain, then exclude any matches
+     * that are followed by a `(` character to reduce false positives
+     */
     for(; i != end; i++) {
         boost::smatch match = *i;
         
@@ -154,11 +132,6 @@ void Crawler::extractDomains(std::string data, std::queue<std::string>* extracte
     }
 }
 
-/**
- * extractDomains uses regex to pull domain-like strings from an input vector
- * 
- * @overload
- */
 void Crawler::extractDomains(std::vector<std::string> data, std::queue<std::string>* extractedDomains) {
     // For every string in the data
     for(std::string it : data) {
@@ -167,51 +140,42 @@ void Crawler::extractDomains(std::vector<std::string> data, std::queue<std::stri
     }
 }
 
-/**
- * processSiteContents calls extractDomains then validates the domains returned by this call
- * 
- * @param inputData a struct which contains a site's url and HTML data 
- */
 void Crawler::processSiteContents(siteData inputData) {
     std::queue<std::string> extractedDomains;
     extractDomains(inputData.siteContents, &extractedDomains);        
     
     while(!extractedDomains.empty()) {
-        // Checks if the excluded domains to SearcherThread
-        if(excludedDomains.find(extractedDomains.front()) == excludedDomains.end())
+        // Excludes domains on the exclusion list, and domains that are too large
+        if(extractedDomains.front().size() < maxDomainSize && excludedDomains.find(extractedDomains.front()) == excludedDomains.end())
             extractedDomainQueue->push(extractedDomains.front());
         extractedDomains.pop();
     }
 }
 
-/**
- * tryPushUrl validates URLs before curl is directed to query them. This function
- * uses traversedDomains
- * 
- * This function is not thread-safe
- * 
- * @param url the url to push
- * @param domain the url's domain. This parameter is used for URL validation
- */
-void Crawler::tryPushUrl(std::string url, std::string domain) {
-    // 
-    if(!traversedDomains.contains(domain) && url.length() > 0) {
-        // If this URL's domain has never been seen before, create a new domain entry
-        if(visitedUrlsPerDomain.find(domain) == visitedUrlsPerDomain.end()) {
-            std::unordered_set<std::string> newSet = {url};
-            visitedUrlsPerDomain.insert(std::make_pair(domain, newSet));
-            urlQueue->push(url);
-        // If the domain has been seen, and the URL has not been visited before
-        } else if(visitedUrlsPerDomain[domain].find(url) == visitedUrlsPerDomain[domain].end()) {
-            // If the number of URLs visited meets the MAX_LINKS_PER_DOMAIN after this addition
-            if(visitedUrlsPerDomain[domain].size() >= maxRequestsPerDomain) {
-                // Exclude URLs associated with this domain in the future
-                traversedDomains.safeInsert(domain);
-                // Save memory by deleting the URLs stored in the map
-                visitedUrlsPerDomain.erase(visitedUrlsPerDomain.find(domain));
-            } else
-                visitedUrlsPerDomain[domain].insert(url);
-            urlQueue->push(url);
+void Crawler::pushUrls() {
+    while(!queuedUrls.empty()) {
+        std::string url = queuedUrls.front().first;
+        std::string domain = queuedUrls.front().second;
+
+        if(!traversedDomains.contains(domain) && url.length() > 0) {
+            // If this URL's domain has never been seen before, create a new domain entry
+            if(visitedUrlsPerDomain.find(domain) == visitedUrlsPerDomain.end()) {
+                std::unordered_set<std::string> newSet = {url};
+                visitedUrlsPerDomain.insert(std::make_pair(domain, newSet));
+                urlQueue->push(url);
+            // If the domain has been seen, and the URL has not been visited before
+            } else if(visitedUrlsPerDomain[domain].find(url) == visitedUrlsPerDomain[domain].end()) {
+                // If the number of URLs visited meets the MAX_LINKS_PER_DOMAIN after this addition
+                if(visitedUrlsPerDomain[domain].size() >= maxRequestsPerDomain) {
+                    // Exclude URLs associated with this domain in the future
+                    traversedDomains.safeInsert(domain);
+                    // Save memory by deleting the URLs stored in the map
+                    visitedUrlsPerDomain.erase(visitedUrlsPerDomain.find(domain));
+                } else
+                    visitedUrlsPerDomain[domain].insert(url);
+                urlQueue->push(url);
+            }
         }
+        queuedUrls.pop();
     }
 }

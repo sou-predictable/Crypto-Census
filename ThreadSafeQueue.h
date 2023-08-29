@@ -15,28 +15,87 @@
 template <class C>
 class ThreadSafeQueue {
     public:
+
+        /**
+         * Default constructor.
+         * 
+         * Initializes sleepLockMilliseconds, the number of miliseconds a thread should sleep after encountering a conflict
+         * 
+         * @tparam C the type of data the queue stores. 
+         */
         ThreadSafeQueue();
+        
+        /**
+         * Constructor.
+         * 
+         * Initializes sleepLockMilliseconds, the number of miliseconds a thread should sleep after encountering a conflict.
+         * If the parameter passed is equal or less 0, sleepLockMiliseconds defaults to 1.
+         * 
+         * @tparam C the type of data the queue stores. 
+         * @param sLockMiliseconds the number of miliseconds a thread should sleep after encountering a conflict 
+         */
         ThreadSafeQueue(int sLockMilliseconds);
+
+        /**
+         * Thread safe wrapper around queue.pop().
+         * 
+         * Unlike the STD counterpart, pop() both removes the first element and returns it.
+         * 
+         * @tparam C the type of data the queue stores.
+         * @return C the item at the front of the queue.
+         */
         C safePop();
-        ThreadSafeQueue<C>& operator=(const ThreadSafeQueue<C>& copy);
+
+        /**
+         * Thread safe wrapper around queue.pop().
+         * 
+         * @tparam C the type of data the queue stores.
+         * @param[out] output the object popped from the queue.
+         * @return true if successfully popped, false otherwise.
+         */
         bool safePop(C* output);
+        
+        /**
+         * Thread safe wrapper around queue.push().
+         * 
+         * @tparam C the type of data the queue stores.
+         * @param data the object to be pushed to the queue.
+         */
         void push(C data);
+
+        /**
+         * Thread safe wrapper around queue.empty().
+         * 
+         * @tparam C the type of data the queue stores.
+         * @return true if the queue is empty, false otherwise.
+         */
         bool empty();
+        
+        /**
+         * Thread safe wrapper around queue.size().
+         * 
+         * @tparam C the type of data the queue stores.
+         * @return the size of the queue.
+         */
         int size();
+
+        /**
+         * Thread safe wrapper around queue's copy constructor.
+         * 
+         * @tparam C the type of data the queue stores.
+         * @return a reference to the local variable.
+         */
+        ThreadSafeQueue<C>& operator=(const ThreadSafeQueue<C>& copy);
+        
     private:
         std::queue<C> queue;
         std::mutex mu;
         std::chrono::milliseconds sleepLockMilliseconds;
 };
 
-/**
- * Thread
- * 
- * @tparam C the type of data the queue stores 
- */
 template<class C>
 inline ThreadSafeQueue<C>::ThreadSafeQueue() {
-    sleepLockMilliseconds = std::chrono::milliseconds(5);
+    sleepLockMilliseconds = std::chrono::milliseconds(1);
 }
 
 template<class C>
@@ -46,7 +105,6 @@ inline ThreadSafeQueue<C>::ThreadSafeQueue(int sLockMilliseconds) {
     else
         sleepLockMilliseconds = std::chrono::milliseconds(1);
 }
-
 
 template <class C>
 inline C ThreadSafeQueue<C>::safePop() {
@@ -88,6 +146,7 @@ inline void ThreadSafeQueue<C>::push(C data) {
     queue.push(data);
 }
 
+
 template <class C>
 inline bool ThreadSafeQueue<C>::empty() {
     std::unique_lock<std::mutex> lock(mu, std::try_to_lock);
@@ -109,7 +168,6 @@ inline int ThreadSafeQueue<C>::size() {
     int temp = queue.size();
     return temp;
 }
-
 
 template<class C>
 inline ThreadSafeQueue<C>& ThreadSafeQueue<C>::operator=(const ThreadSafeQueue<C>& copy) {

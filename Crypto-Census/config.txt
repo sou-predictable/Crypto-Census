@@ -1,0 +1,10 @@
+TermMatcher_NumRequiredTerms=4
+Crawler_MaxExtractedLinksPerPage=500
+Crawler_MaxRequestsPerDomain=150
+Crawler_MaxConnections=1000
+Searcher_MaxConnections=2000
+Curl_UserAgent=Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/115.0.0.0 Safari/537.36
+Curl_SslCertLocation=cacert.pem
+Curl_BytesToRead=15000000
+Curl_MaxRedirects=3
+Curl_Timeout=5

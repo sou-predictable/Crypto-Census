@@ -11,12 +11,6 @@
 #include <unordered_map>
 #include <vector>
 
-/**
- * CurlThread constructor
- * 
- * @param cIO the struct holding the input and output queue pointers for curl
- * @param killS a pointer to the kill switch semaphore
- */
 CurlThread::CurlThread(curlIO cIO, std::atomic<int>* kSwitch, Config* config) {
     // Non-configurable libcurl constants
     const std::string acceptedProtocols = "http,https";
@@ -48,9 +42,10 @@ CurlThread::CurlThread(curlIO cIO, std::atomic<int>* kSwitch, Config* config) {
 
     const std::string sslCertLocation = config->getConfig("Curl_SslCertLocation", defaultSslCertLocation);
     const std::string userAgent = config->getConfig("Curl_UserAgent", defaultUserAgent);
-    const std::string acceptedByteRange = lowerByteRange + std::to_string(config->getIntConfig("Curl_BytesToRead", defaultUpperByteRange));
     const long maxRedirects = config->getLongConfig("Curl_MaxRedirects", defaultMaxRedirects);
     const long slowTimeoutSeconds = config->getLongConfig("Curl_Timeout", defaultSlowTimeoutSeconds);
+    upperByteLimit = config->getIntConfig("Curl_BytesToRead", defaultUpperByteRange);
+    const std::string acceptedByteRange = lowerByteRange + std::to_string(upperByteLimit);
 
     killSwitch = kSwitch;
     
@@ -69,13 +64,16 @@ CurlThread::CurlThread(curlIO cIO, std::atomic<int>* kSwitch, Config* config) {
     HTTPHeaderOptions = curl_slist_append(HTTPHeaderOptions, "Sec-Fetch-Site: same-origin");
     HTTPHeaderOptions = curl_slist_append(HTTPHeaderOptions, "Sec-Fetch-User: ?1");
 
-    // For each allowed connection
+    /**
+     * For each allowed connection, initialize a curl easy handle, then a pointer to the handle is added both a 
+     * queue of waiting handles, and a map which is used to store any data the handle might return
+     */ 
     for(size_t i = 0; i < MaxConnections; i++) {
-        // Initialize the cURL easy handle
         CURL* eHandle = curl_easy_init();
-        // Checks to see if cURL is valid and proceeds with the setup and if it is
         if(eHandle) {
-            siteData* sData = new siteData();               // A siteData object the callback function uses to output data
+            // A siteData object the callback function uses to output data
+            siteData* sData = new siteData();
+            sData->maxContentBytes = upperByteLimit;
 
             // Calls the static callback function curlCallback
             curl_easy_setopt(eHandle, CURLOPT_WRITEFUNCTION, CurlThread::curlWriteDataCallback);
@@ -98,34 +96,26 @@ CurlThread::CurlThread(curlIO cIO, std::atomic<int>* kSwitch, Config* config) {
 
             easyHandles.insert(std::pair<CURL*, siteData*> (eHandle, sData));
         } else {
-            // Todo: Error Handling
-            std::cout << "Error Initializing EasyHandle" << std::endl;
+            std::cout << "Error: Initializing EasyHandle Failed\n";
         }
     }
 }
 
-/**
- * cleanup performs the libcurl cleanup operations
- */
 void CurlThread::cleanup() {
     curl_slist_free_all(HTTPHeaderOptions);
     for(auto handle : easyHandles) {
-        curl_multi_remove_handle(multiHandle, handle.first);
-        if(handle.first)
+        if(handle.first) {
+            curl_multi_remove_handle(multiHandle, handle.first);
             curl_easy_cleanup(handle.first);
+        }
     }
     curl_multi_cleanup(multiHandle);
 }
 
-/**
- * consumeUrls uses libcurl's curl_multi_perform to run multiple simultaneous transfers.
- * curl_multi_poll is then called to wait for activity from any of the ongoing transfers.
- * curl_multi_info_read is called to read what happened to transfers that have completed.
- * 
- * Libcurl easy handles which have completed their transfers are placed in the handlesWaitingForNewURLs
- * queue to await additional URLs.
- */
 void CurlThread::consumeUrls() {
+    // Max Chrome Length: https://chromium.googlesource.com/chromium/src/+/master/docs/security/url_display_guidelines/url_display_guidelines.md#:~:text=Chrome%20limits%20URLs%20to%20a,is%20used%20on%20VR%20platforms.
+    const int maxUrlLength = 2097152;
+    
     int isRunning;
     struct CURLMsg* message;
     CURLMcode multiResponse;
@@ -136,8 +126,10 @@ void CurlThread::consumeUrls() {
         int messagesRead = 0;
         bool workDone = false;
         
-        // While the URL queue is not empty, and there exists handles waiting for new URLs
-        while(!handlesWaitingForNewURLs.empty() && urlQueue->safePop(&url)) {
+        // Restricts the size of the output queue to prevent runaway memory usage
+        const int maxOutputQueue = 1000;
+        // While the URL queue is not empty, and there exists handles waiting for new URLs, and the outputQueue is not
+        while(!handlesWaitingForNewURLs.empty() && urlQueue->safePop(&url) && outputQueue->size() < maxOutputQueue) {
             // Call updateHandleUrl, and provide it with the first waiting handle, and the first waiting URL
             updateHandleURL(handlesWaitingForNewURLs.front(), url);
 
@@ -150,16 +142,18 @@ void CurlThread::consumeUrls() {
         multiResponse = curl_multi_perform(multiHandle, &isRunning);
         // If execution was successful
         if(multiResponse != CURLM_OK) {
-            std::cout << "CURL MULTI ERROR: " << multiResponse << std::endl;
+            std::cout << "ERROR: curl multi error: " << multiResponse << "\n";
             break;
         }
 
-        // Read messages from CURL's message queue
+        // Read messages from curl's message queue
         message = curl_multi_info_read(multiHandle, &messageQueueItems);
-        // While there are finished transfers
+        /**
+         * While there are finished transfers, read up to 100 messages. This 100 message limit prevents
+         * message read operations from blocking new connections from starting.
+         */
         while(message && messagesRead < 100) {
             messagesRead++;
-            // If the message exists
             if(message) {
                 CURL* eHandle = message->easy_handle;
                 // If the message indicates a completed transfer
@@ -169,43 +163,36 @@ void CurlThread::consumeUrls() {
                         // Find the siteData the curl handle used
                         std::unordered_map<CURL*, siteData*>::iterator outputIt = easyHandles.find(eHandle);
                         siteData* siteOutput = outputIt->second;
-                        // If the request did not involve an empty URL, and the request did not return empty, and the handle was not misallocated
-                        if(!siteOutput->siteUrl.empty() && !siteOutput->siteContents.empty() && outputIt != easyHandles.end())
+                        /**
+                         * If the request did not involve an empty URL, the request did not return empty,
+                         * the URL size is less than Chrome's maximum URL length of 2 MB,
+                         * and the handle was not misallocated, initiate a siteData object and populate it with the output of 
+                         * the curl operation. This siteData object is then pushed to the output queue.
+                         */
+                        if(!siteOutput->siteUrl.empty() && siteOutput->siteUrl.size() < maxUrlLength && !siteOutput->siteContents.empty() && outputIt != easyHandles.end())
                             outputQueue->push(siteData(siteOutput->siteContents, siteOutput->siteUrl));
-                    // Otherwise, print the cURL error and the associated URL
-                    } else {
-                        std::unordered_map<CURL*, siteData*>::iterator outputIt = easyHandles.find(eHandle);
-//                        std::cout << '\r' << "CURL Error: " << message->data.result << "                                                                                                       " << std::endl << "URL: " << outputIt->second->siteUrl << "                                                          " << std::endl;
+                        siteData empty;
+                        // Deallocate memory; Prevents bloat caused by large sites or URLs
+                        siteOutput->siteContents = empty.siteContents;
+                        siteOutput->siteUrl = empty.siteUrl;
                     }
-                    // If there exists a URL, repopulate the handle
-                    if(urlQueue->safePop(&url))
-                        updateHandleURL(eHandle, url);
-                    else
-                        //Otherwise, push the handle to the handlesWaitingForNewURLs queue
-                        handlesWaitingForNewURLs.push(eHandle);
+                    handlesWaitingForNewURLs.push(eHandle);
                     workDone = true;
                 }
             }
             // Get the next message
             message = curl_multi_info_read(multiHandle, &messageQueueItems);
         }
-//            std::cout << '\r' << "URLS Left: " << urlQueue -> size() <<  "Empty Transfers: " << handlesWaitingForNewURLs.size() << " Number Of Running Transfers: " << isRunning << std::endl;
         // If no work was done in last cycle, sleep to avoid tight loop
         if(!workDone)
             std::this_thread::sleep_for(sleepLockMilliseconds);
     } while(killSwitch->load() == 0);
-    std::cout << "CurlThread Exiting" << std::endl;
+
+    std::cout << "CurlThread Cleanup Started\n";
+    cleanup();
+    std::cout << "CurlThread Exiting\n";
 }
 
-/**
- * Static callback class which follows the prototype found at https://curl.se/libcurl/c/CURLOPT_WRITEFUNCTION.html
- * This function is used by the libcurl Easy Interface curl_easy_setopt function with the CURLOPT_WRITEFUNCTION option
- * 
- * @param[in] ptr a pointer to the data delivered by cURL
- * @param[in] size "size is always 1" (https://curl.se/libcurl/c/CURLOPT_WRITEFUNCTION.html)
- * @param[in] nmemb the size of the data delivered by cURL
- * @param[out] buffer the siteData object output is written to
- */
 size_t CurlThread::curlWriteDataCallback(char* ptr, size_t size, size_t nmemb, siteData* buffer) {
     const std::size_t maxDesiredStringSize = 100000;
 
@@ -217,37 +204,38 @@ size_t CurlThread::curlWriteDataCallback(char* ptr, size_t size, size_t nmemb, s
     // Vector used to prevent excessively massive string sizes, as extremely large strings cause inefficiencies and instability
     std::size_t charsToParse = nmemb;
 
-    // Aims for strings of size 100000 and below.
-    while(charsToParse > maxDesiredStringSize) {
+    // Gets total size of all strings representing the site's content
+    std::size_t currentContentSize = 0;
+    for(std::string e : buffer->siteContents) {
+        currentContentSize += e.size();
+    }
+
+    /** 
+     * Ensures the total is less than the specified upperByteLimit and chunks strings down to size 100000 and below.
+     * 
+     * This check ensures the program enforces a max siteContent to process, as sites may choose to ignore CURLOPT_RANGE
+     */
+    while(currentContentSize < buffer->maxContentBytes && charsToParse > maxDesiredStringSize) {
         str.assign(ptr, maxDesiredStringSize);
         buffer->siteContents.push_back(str.substr(0, maxDesiredStringSize));
         ptr += maxDesiredStringSize;
         charsToParse -= maxDesiredStringSize;
+        currentContentSize += 100000;
     }
+    
     // When the string is less than size 100000, the char * ptr variable is converted to a string and pushed to the buffer's string vector
     str.assign(ptr);
-    buffer->siteContents.push_back(str);
-    //Return nmemb, the size of the array.
+    if(currentContentSize + str.size() < buffer->maxContentBytes)
+        buffer->siteContents.push_back(str);
+
+    // Return nmemb, the size of the array.
     return nmemb;
 };
 
-/**
- * updateHandleURL updates the easy handle with a new URL
- * 
- * The easy handle is removed and re-added to the multi handle to update the values
- * 
- * @param eHandle the handle to refresh
- * @param url the URL the handle should query next
- */
 void CurlThread::updateHandleURL(CURL* eHandle, std::string url) {
     std::unordered_map<CURL*, siteData*>::iterator it = easyHandles.find(eHandle);
 
-    // TODO: remove these
-//    std::cout << '\r' << "Query Complete: " << it->second->siteUrl << "                                                                                          " <<std::endl; 
-//    std::cout << '\r' << "Querying: " << url << "                                                                                                       " << std::endl; 
-
-    // Find the the cURL handle, update the siteData with a new URL, and clear the old site's data
-    it->second->siteContents.clear();
+    // Find the the curl handle, update the siteData with a new URL
     it->second->siteUrl = url.c_str();
     
     // Update the multi handle by removing and readding the changed handle

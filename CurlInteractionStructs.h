@@ -5,9 +5,15 @@
 #include <vector>
 #include <string>
 
+/**
+ * A structure representing site data.
+ * 
+ * This struct holds both a vector of strings representing the site's data, and a string representing the site's URL
+ */
 struct siteData {
     std::vector<std::string> siteContents;
     std::string siteUrl;
+    int maxContentBytes;
 
     siteData() = default;
 
@@ -17,6 +23,7 @@ struct siteData {
     }
 };
 
+// A structure representing input/output elements and configurations needed for the curl handler. 
 struct curlIO {
     ThreadSafeQueue<siteData>* output;
     ThreadSafeQueue<std::string>* urls;
