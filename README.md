@@ -15,7 +15,7 @@ Crypto Census utilizes a `curl`-based web crawler and web scraper to:
 5. Output validated domains to a text list.
 
 ## Usage
-To run Crypto Census, download the files in the folder `Crypto-Census` into the same directory. Then, execute `CryptoCensus.exe`. Alternatively, the file `output.txt` can be used out of the box for domain indicator detections.
+To run Crypto Census, download and unzip `Crypto-Census.zip`. Then, execute `CryptoCensus.exe`. Alternatively, the file `output.txt` can be used out of the box for domain indicator detections.
 
 The current values in `sources.txt` come from the [minerstat exclusion list](https://minerstat.com/mining-pool-whitelist.txt). The file`output.txt` contains the output of the program after a few hours of execution using default settings.
 

@@ -36,12 +36,11 @@
                 "${fileDirname}\\SearcherThread.cpp",
                 "${fileDirname}\\Crawler.cpp",
                 "${fileDirname}\\TermMatcher.cpp",
-                "${fileDirname}\\OutputHandler.cpp",
                 "${fileDirname}\\Config.cpp",
                 "-lcurl",
                 "-g",
                 "-o",
-                "${fileDirname}\\CryptoAggregator.exe"
+                "${fileDirname}\\CryptoCensus.exe"
             ],
             "options": {
                 "cwd": "${fileDirname}"

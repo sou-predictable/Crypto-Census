@@ -5,7 +5,7 @@
             "name": "C/C++: g++.exe build and debug active file",
             "type": "cppdbg",
             "request": "launch",
-            "program": "${fileDirname}\\CryptoAggregator.exe",
+            "program": "${fileDirname}\\CryptoCensus.exe",
             "args": [],
             "stopAtEntry": false,
             "cwd": "${fileDirname}",
