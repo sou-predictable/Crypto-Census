@@ -21,6 +21,8 @@ The current values in `sources.txt` come from the [minerstat exclusion list](htt
 
 In the case of network issues, or other disruptions to Crypto Census, the tool is designed in a way that allows users to feed the data in `output.txt` back to `sources.txt`. Doing so allows Crypto Census to pick up where it left off. 
 
+For a more detailed look at the tool, see the [release blogpost](https://medium.com/@asou/crypto-census-automating-cryptomining-domain-indicator-detections-fcf753b0cf1a).
+
 ## Planned Features
 
 Here is a roadmap of planned changes/improvements:
