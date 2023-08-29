@@ -1,6 +1,6 @@
 # Crypto Census
 
-The aim of Crypto Census is to reduce the profitability of cryptojacking by providing organizations a centralized text list of known public mining pools and crypto domains. This list can then be applied in domain indicator detections, or firewall exclusions.
+The aim of [Crypto Census](https://github.com/sou-predictable/Crypto-Census) is to reduce the profitability of cryptojacking by providing organizations a centralized text list of known public mining pools and crypto domains. This list can then be applied in domain indicator detections, or firewall exclusions.
 
 This project also aims to provide the community with a documented, customizable, self-maintainable aggregation tool for crypto-related domains.
 
